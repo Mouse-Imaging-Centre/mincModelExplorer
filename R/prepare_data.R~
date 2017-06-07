@@ -1,0 +1,117 @@
+
+#' Create Minc Model Explorer App
+#' 
+#' Read in pydpiper files and directories and produce an appropriate app directory
+#' @export
+make_explorer_app <-
+    function(title
+           , pydpiper_dir
+           , metadata
+           , defs
+           , model_formula = Filenames ~ genotype
+           , config = system.file("config.R", package = "minc_model_explorer")
+           , blur_level = 0.2
+             , input_file_col = mouse){
+
+        dets_file <- file.path(pydpiper_dir, "determinants.csv")
+        xfms_file <- file.path(pydpiper_dir, "transforms.csv")
+
+        if(!file.exists(dets_file) | !file.exists(xfms_file))
+            stop("Unable to read determinants or transforms file from your pydpiper directory\n"
+               , "are you sure you have the right path")
+
+        if(!file.exists(metadata))
+            stop("Unable to read your metadata file")
+
+        dets <- read.csv(dets_file) %>% filter(fwhm == blur_level)
+        xfms <- read.csv(xfms_file)
+        metadata <- read.csv(metadata)
+
+        ## gfs <- inner_join(metadata
+        ##                 , inner_join(dets, xfms, by = c("inv_xfm" = "lsq12_nlin_xfm"))
+        ##                 , eval(bquote(c(.(input_file_col) = "native_file")))
+        cat(eval(bquote(c(.(input_file_col) = "native_file"))))
+        }
+               
+        
+globalOptions<-list("title"=title,"plotChoices"=c("genotype"))
+anatVol <- mincArray(mincGetVolume("/hpf/largeprojects/MICe/lqiu/collaborator_40um/PTEN/PTEN_reg/PTEN_25apr17_nlin/PTEN_25apr17-nlin-3.mnc"))
+
+# Mask extraction
+mask <- "/hpf/largeprojects/MICe/lqiu/collaborator_40um/PTEN/PTEN_nlin3_mask.mnc"
+bimask<-mincGetVolume("/hpf/largeprojects/MICe/lqiu/collaborator_40um/PTEN/PTEN_nlin3_mask.mnc")
+
+# Absolute and relative csvs
+gfs <- read.csv("/hpf/largeprojects/MICe/lqiu/collaborator_40um/PTEN/prepare_data_for_collaborators/PTEN167_abs.csv")
+gfsrel <- read.csv("/hpf/largeprojects/MICe/lqiu/collaborator_40um/PTEN/prepare_data_for_collaborators/PTEN167_rel.csv")
+
+# Relevel genotypes
+gfs$genotype <- relevel(gfs$genotype, ref="WT")
+gfsrel$genotype <- relevel(gfsrel$genotype, ref="WT")
+
+# Set bring abs and rel into the same gf
+gfs$AbsJacobians <- gfs$Filenames
+gfs$RelJacobians <- gfsrel$Filenames
+
+# Run minclms
+vs <- mincLm(model_formula, gfs, mask=mask)
+vsrel <- mincLm(model_formula, gfsrel, mask=mask)
+
+# Compute FDR
+vsFDR<-mincFDR(vs)
+vsrelFDR<-mincFDR(vsrel)
+
+# create a list of the allowed stats types, the data associated with each, and the plot that goes along with them.
+modelfunc <- function(data) { summary(lm(voxel ~ genotype, data)) }
+statsList <- list(AbsVol=
+                      list(data = mincArray(vs, "tvalue-genotypeHT")
+                         , xvar = "genotype"
+                         , colour=FALSE
+                         , fill="genotype"
+                         , symmetric=TRUE
+                         , modelfunc=modelfunc
+                         ##### change this! 
+                         , description=paste("Absolute Volume Differences"
+                                           , " - PTEN 167 (HT vs WT). "
+                                           , "1% FDR - 3.4 and at 5% FDR - 2.7")
+                         , filenames=gfs$AbsJacobians
+                         , legend="T-Stats")
+                  
+               ,  RelVol =
+                      list(data = mincArray(vsrel, "tvalue-genotypeHT")
+                         , xvar = "genotype"
+                         , colour=FALSE
+                         , fill="genotype"
+                         , symmetric=TRUE
+                         , modelfunc=modelfunc
+                         ######change this!
+                         , description=paste0("Relative Volume Differences"
+                                            , " - PTEN 167 (HT vs WT). "
+                                            , "1% FDR - 4.2 and at 5% FDR - 3.4")
+                        ,  filenames=gfs$RelJacobians,
+                          legend="T-Stats"))
+
+# Run anat gets
+allvols <- anatGetAll(gfs$labels, gfs$labels[1], method="labels"
+                    , defs=defs)
+gfs$vols <- anatCombineStructures(allvols, defs=defs)
+
+# Compute brain volume
+brainvolumes <- rowSums(gfs$vols)
+
+# Compute relative vols
+gfsrel$vols <- gfs$vols/brainvolumes * 100
+
+# Run anatLms
+avs <- anatLm(~genotype, gfs, gfs$vols)
+avsrel <- anatLm(~genotype, gfsrel, gfsrel$vols)
+
+qavs <- anatFDR(avs)
+qavsrel <- anatFDR(avsrel)
+
+save(file=file.path(out_dir, "data.rds")
+   , globalOptions, anatVol, d, statsList, gfs, avs, qavs, avsrel, qavsrel)
+
+invisible(NULL)
+}
+

@@ -1,0 +1,9 @@
+Package: mincModelExplorer
+Type: Package
+Title: Explore voxel wise linear models
+Version: 1.0
+Date: 2017-06-06
+Author: Who wrote it
+Maintainer: Who to complain to <yourfault@somewhere.net>
+Description: More about what it does (maybe more than one line)
+License: What license is it under?
