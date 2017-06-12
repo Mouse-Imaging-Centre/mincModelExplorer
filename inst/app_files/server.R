@@ -96,7 +96,11 @@ shinyServer(function(input, output, clientData, session) {
     myposition <- position_dodge()
     if (input$graphType == "point") { myposition <- position_jitterdodge(dodge.width=mywidth) }
     
-    p <- do.call(qplot, c(list(inputdata$xvar, inputdata$data, data=inputdata, geom=input$graphType, position=myposition),
+    p <- do.call(qplot, c(list(inputdata$xvar
+                             , inputdata$data
+                             , data=inputdata
+                             , geom=input$graphType
+                             , position=myposition),
                           list(colour=inputdata$colour)[input$colour!="None"], 
                           list(fill=inputdata$fill)[input$fill!="None"])) +
       
@@ -416,20 +420,21 @@ shinyServer(function(input, output, clientData, session) {
     usableNames <- unique(statsList[[input$statistic]][c("xvar", "colour", "fill")])
     isFalse <- usableNames %in% FALSE
     usableNames <- usableNames[!isFalse]
-    cat(1)
+    #cat(1)
     v <- as.data.frame(gfs$vols)
     for (i in 1:length(usableNames)) {
       v[,usableNames[[i]]] = gfs[,usableNames[[i]]]
     }
     usableNames <- unlist(usableNames)
-    cat(2)
+    #cat(2)
     #v[,statsList[[input$statistic]]$xvar] = gfs[,statsList[[input$statistic]]$xvar]
     cat(" ", usableNames[1], " ")
     m <- melt(v, id.vars=usableNames) #statsList[[input$statistic]]$xvar)
-    cat(3)
+    #cat(3)
     m <- subset(m, variable %in% selectedStructures)
-    cat(4)
-    for (i in 1:length(names(m))) { cat(names(m)[i], " ")}
+    #cat(4)
+    cat(names(m), "\n")
+    cat(nrow(m), "\n")
     cat("5\n")
     
     update_geom_defaults("point", list(colour = "black"))

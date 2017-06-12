@@ -10,9 +10,9 @@ make_explorer_app <-
            , metadata
            , defs
            , model_formula = Filenames ~ genotype
-           , config = system.file("config.R", package = "minc_model_explorer")
+           , config_file = system.file("config.R", package = "mincModelExplorer")
            , blur_level = 0.2
-           , input_file_col = "mouse"
+           , input_file_col = "Filenames"
            , relevels = c("genotype" = "WT")
            , plot_choices = "genotype"
            , label_data = NULL
@@ -38,7 +38,8 @@ make_explorer_app <-
         # Copy over app files
         lapply(c("global.R", "screenplot.R", "server.R", "ui.R")
              , function(f) file.copy(system.file(file.path("app_files", f)
-                                               , package = "minc_model_explorer")))
+                                               , package = "minc_model_explorer")
+                                     , out_dir))
 
         # Global options
         globalOptions <- list(title = title, plotChoices = plot_choices)
@@ -54,7 +55,7 @@ make_explorer_app <-
         if(!file.exists(metadata))
             stop("Unable to read your metadata file")
 
-        if(!is.null(maget_data) & !file.exists(maget_data))
+        if(!is.null(label_data) && !file.exists(label_data))
             stop("Unable to find your maget data file")
 
         # Read in data frames
@@ -62,21 +63,44 @@ make_explorer_app <-
         xfms <- read.csv(xfms_file)
         metadata <- read.csv(metadata)
 
+        # Check xfms has the native file, otherwise search for it
+        if(is.null(xfms$native_file)){
+            link_err <- paste0("Unable to link determinants to input files \n"
+                       , "consider adding a `native_file` column to "
+                       , xfms_file)
+            
+            native_files <- sub("\\.mnc", "", basename(metadata[[input_file_col]]))
+            nf_matches <- vapply(native_files, function(f){
+                matches <- grep(f, dets$log_full_det)
+                if(length(matches) > 1) #possible dups in asym pipeline for example
+                    matches <- grep(paste0(f, "_N_I"), dets$log_full_det)
+
+                if(length(matches) != 1)
+                    stop(link_err)
+
+                matches
+            }, numeric(1))
+
+            if(any(duplicated(nf_matches)))
+               stop(link_err)
+
+            dets <- dets[nf_matches, ] ##removes indivs not in metadata
+            dets$native_file <- metadata[[input_file_col]]
+        } else {
+            dets <- inner_join(dets, xfms, by = c("inv_xfm" = "lsq12_nlin_xfm"))
+        }
+
         # Make native files absolute
         # check the first file, if it doesn't start with /, make all absolute
-        if(!grepl("^/", xfms$native_file[1])) 
-            xfms$native_file <- file.path(pydpiper_dir, xfms$native_file)
+        if(!grepl("^/", dets$native_file[1])) 
+            dets$native_file <- file.path(pydpiper_dir, dets$native_file)
 
-        if(!grepl("^/", metadata[[input_col_names]][1]))
-            metadata[[input_col_names]] <- file.path(pydpiper_dir, metadata[[input_col_names]]) 
+        if(!grepl("^/", metadata[[input_file_col]][1]))
+            metadata[[input_file_col]] <- file.path(pydpiper_dir, metadata[[input_file_col]]) 
 
         # Merge the data frames
-        gfs <- inner_join(metadata
-                        , inner_join(dets, xfms, by = c("inv_xfm" = "lsq12_nlin_xfm"))
-                          #small peice of cleverness here, `by` expects a character vector
-                          #where the name is the LHS column, setNames avoids the uninterpolatable
-                          # c(lname = "rname") problem. bquote and substitute *won't work*
-                        , setNames("native_file", input_file_col))
+        gfs <- inner_join(dets, metadata                        
+                        , by = c("native_file" = input_file_col))
 
         # Check if we can run anatomy
         if(is.null(label_data) & is.null(gfs$labels))
@@ -109,27 +133,28 @@ make_explorer_app <-
         ## Relevel according to the user supplied "dictionary" (really char vector)
         gfs <-
             Reduce(function(base, update){
-                base[[update]] <- relevel(factor(base[[update]]), rlvls[[update]])
+                base[[update]] <- relevel(factor(base[[update]]), relevels[[update]])
                 base
             }
           , names(relevels), gfs)
 
         # Move volume files
         abs_files <- gfs$log_full_det
-        new_abs_files <- file.path(out_dir, "volumes", basename(abs_files))
+        new_abs_files <- file.path("volumes", basename(abs_files))
         if(!grepl("^/", abs_files[1])) 
             abs_files <- file.path(pydpiper_dir, abs_files)
 
         rel_files <- gfs$log_nlin_det
-        new_rel_files <- file.path(out_dir, "volumes", basename(rel_files)) 
+        new_rel_files <- file.path("volumes", basename(rel_files)) 
         if(!grepl("^/", rel_files[1])) 
             rel_files <- file.path(pydpiper_dir, rel_files)
 
-        mapply(file.copy, from = abs_files, to = new_abs_files)
-        mapply(file.copy, from = rel_files, to = rel_abs_files)
+        mapply(file.copy, from = abs_files, to = file.path(out_dir, new_abs_files))
+        mapply(file.copy, from = rel_files, to = file.path(out_dir, new_rel_files))
 
-        gfs$log_full_det <- new_abs_files
-        gfs$log_nlin_det <- new_rel_files
+        # Set files for running locally
+        gfs$log_full_det <- abs_files
+        gfs$log_nlin_det <- rel_files
             
         # Run minclms
         vs <- mincLm(abs_model, gfs, mask=mask)
@@ -139,15 +164,23 @@ make_explorer_app <-
         vsFDR<-mincFDR(vs)
         vsrelFDR<-mincFDR(vsrel)
 
+        # Fix filenames for use in the app
+        gfs$log_full_det <- new_abs_files
+        gfs$log_nlin_det <- new_rel_files
+
         # Setup specific voxel model function
+        ## stupid lugging of environments causes this function to explode in size
+        ## and ruin everything. 
         modelfunc <- function(data) { summary(lm(summary_model, data)) }
+        environment(modelfunc) <- globalenv()
+        environment(modelfunc)$summary_model <- summary_model
 
         # Bring in config (I don't reaaallly like this, but the config is so ugly)
-        source(config_file)
+        source(config_file, local = TRUE)
 
         # Set up objects to be exported 
         export_file_args <-
-            alist(file = file.path(out_dir, "data.rds")
+            alist(file = file.path(out_dir, "data.rda")
                 , globalOptions
                 , anatVol
                 , d
