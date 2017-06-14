@@ -1,0 +1,1 @@
+Generate a nice collaborator app for your [pydpiper](https://github.com/Mouse-Imaging-Centre/pydpiper) run
