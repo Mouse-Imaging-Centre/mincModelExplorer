@@ -2,6 +2,24 @@
 #' Create Minc Model Explorer App
 #' 
 #' Read in pydpiper files and directories and produce an appropriate app directory
+#'
+#' @param title The name of the app
+#' @param out_dir Where to create the app directory
+#' @param metadata A file containing the data needed to fit models of
+#' absolute and relative jacobians. Can include a labels column indicating
+#' MAGeT labelled data files
+#' @param defs A definitions file
+#' @param model_formula The basic model to run
+#' @param blur_level For filtering pydpiper output
+#' @param relevels A named character vector of column_name = base_factor_level
+#' defaults to c("genotype" = "WT")
+#' @param plot_choices values to offer the use for plot choices
+#' @param label_data A file containing paths to MAGeT labelled data files
+#' @param study_average Where to find the final average, defaults to the nlin-3 average
+#' from pydpiper
+#' @param mask A mask to use for the analysis, defaults to the nlin-3 mask
+#' @param clobber whether to overwrite files in an existing app directory
+#' @return The final merged data frame invisibly.
 #' @export
 make_explorer_app <-
     function(title
